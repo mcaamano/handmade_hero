@@ -6,7 +6,7 @@
                 "${env:windir}\\Sysnative\\cmd.exe",
                 "${env:windir}\\System32\\cmd.exe"
             ],
-            "args": ["/k", "z:\\misc\\shell.bat"],
+            "args": ["/k", "z:\\handmade_hero\\misc\\shell.bat"],
             "icon": "terminal-cmd"
         },
     },
