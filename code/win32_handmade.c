@@ -93,9 +93,7 @@ static void win32_resize_dib_section(struct win32_offscreen_buffer *buffer, int 
 static void win32_display_buffer_in_window(HDC device_context, 
                                            int window_width,
                                            int window_height,
-                                           struct win32_offscreen_buffer buffer, 
-                                           int x, int y, 
-                                           int width, int height) {
+                                           struct win32_offscreen_buffer buffer) {
     // TODO Aspect Ratio correction
     // TODO Play with stretch modes
     StretchDIBits(device_context, 
@@ -136,12 +134,8 @@ LRESULT win32_main_window_callback(HWND window,
             // Whenever Windoes wants to (re)draw our window this gets called
             PAINTSTRUCT paint;
             HDC device_context = BeginPaint(window, &paint);
-            int x = paint.rcPaint.left;
-            int y = paint.rcPaint.top;
-            int height = paint.rcPaint.bottom - paint.rcPaint.top;
-            int width = paint.rcPaint.right - paint.rcPaint.left;
             struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
-            win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, global_backbuffer, x, y, width, height);
+            win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, global_backbuffer);
             EndPaint(window, &paint);
             break;
         }
@@ -158,7 +152,7 @@ LRESULT win32_main_window_callback(HWND window,
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_line, int show_code) {
     WNDCLASS window_class = {0};
 
-    window_class.style = CS_HREDRAW | CS_VREDRAW CS_OWNDC;
+    window_class.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
     window_class.lpfnWndProc = win32_main_window_callback;
     window_class.hInstance = instance;
     window_class.lpszClassName = "Handmade_Hero_Window_Class";
@@ -206,7 +200,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
                 
                 struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
 
-                win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, global_backbuffer, 0, 0, window_dim.width, window_dim.height);
+                win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, global_backbuffer);
 
                 x_offset++;
                 y_offset++;
