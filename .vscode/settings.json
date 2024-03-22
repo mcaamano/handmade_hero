@@ -25,6 +25,7 @@
         "*.ASSEMBLE*": "hlasm",
         "*.HLASM*": "hlasm",
         "*.HLA*": "hlasm",
-        "xinput.h": "c"
+        "xinput.h": "c",
+        "dsound.h": "c"
     },
 }

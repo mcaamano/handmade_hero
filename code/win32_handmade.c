@@ -9,6 +9,7 @@
 #include <Xinput.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <dsound.h>
 
 #define BYTES_PER_PIXEL     4
 
@@ -37,11 +38,80 @@ static x_input_set_state *XInputSetState_;
 #define XInputSetState XInputSetState_
 
 static void win32_load_xinput(void) {
-    HMODULE x_input_library = LoadLibraryA(XINPUT_DLL_A);
+    HMODULE x_input_library = LoadLibraryA("xinput1_4.dll");
+    if (!x_input_library) {
+        // try 1.3
+        x_input_library = LoadLibraryA("xinput1_3.dll");
+    }
     if (x_input_library) {
         XInputGetState_ = (x_input_get_state *)GetProcAddress(x_input_library, "XInputGetState");
         XInputSetState_ = (x_input_set_state *)GetProcAddress(x_input_library, "XInputSetState");
+    } else {
+        // TODO diagnostic
     }
+}
+
+// typedef HRESULT WINAPI x_direct_sound_create(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
+// static x_direct_sound_create *DirectSoundCreate_;
+// #define DirectSoundCreate DirectSoundCreate_
+
+static void win32_init_dsound(HWND window, int32_t buffer_size, int32_t sample_per_second) {
+    LPDIRECTSOUND direct_sound;
+    HRESULT result = DirectSoundCreate(0, &direct_sound, 0);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        return;
+    }
+    OutputDebugStringA("DirectSoundCreate OK\n");
+
+    // Set CoOp mode
+    result = direct_sound->lpVtbl->SetCooperativeLevel(direct_sound, window, DSSCL_PRIORITY);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        return;
+    }
+    OutputDebugStringA("DirectSoundCreate OK\n");
+
+    // Create a primary buffer
+    DSBUFFERDESC primary_buffer_desc = {0};
+    primary_buffer_desc.dwSize = sizeof(primary_buffer_desc);
+    primary_buffer_desc.dwFlags = DSBCAPS_PRIMARYBUFFER;
+    LPDIRECTSOUNDBUFFER primary_buffer;
+    result = direct_sound->lpVtbl->CreateSoundBuffer(direct_sound, &primary_buffer_desc, &primary_buffer, 0);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        return;
+    }
+    OutputDebugStringA("primary_buffer CreateSoundBuffer OK\n");
+
+    WAVEFORMATEX wave_format = {0};
+    wave_format.wFormatTag = WAVE_FORMAT_PCM;
+    wave_format.nChannels = 2;
+    wave_format.nSamplesPerSec = sample_per_second;
+    wave_format.wBitsPerSample = 16;
+    wave_format.nBlockAlign = (wave_format.nChannels * wave_format.wBitsPerSample) / 8;
+    wave_format.nAvgBytesPerSec = wave_format.nSamplesPerSec*wave_format.nBlockAlign;
+    wave_format.cbSize = 0;
+    result = primary_buffer->lpVtbl->SetFormat(primary_buffer, &wave_format);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        return;
+    }
+    OutputDebugStringA("primary_buffer SetFormat OK\n");
+
+    // Create a secondary buffer
+    DSBUFFERDESC secondary_buffer_desc = {0};
+    secondary_buffer_desc.dwSize = sizeof(primary_buffer_desc);
+    secondary_buffer_desc.dwFlags = 0;
+    secondary_buffer_desc.dwBufferBytes = buffer_size;
+    secondary_buffer_desc.lpwfxFormat = &wave_format;
+    LPDIRECTSOUNDBUFFER secondary_buffer;
+    result = direct_sound->lpVtbl->CreateSoundBuffer(direct_sound, &secondary_buffer_desc, &secondary_buffer, 0);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        return;
+    }
+    OutputDebugStringA("secondary_buffer CreateSoundBuffer OK\n");
 }
 
 static struct win32_window_dimension win32_get_window_dimensions(HWND window) {
@@ -153,52 +223,58 @@ LRESULT win32_main_window_callback(HWND window,
             uint32_t vkey_code = w_param;
             bool was_down = ((l_param & (1<<30)) != 0);
             bool is_down = ((l_param & (1<<31)) == 0);
-            switch(vkey_code) {
-                case 'W':
-                    OutputDebugStringA("W KEY");
-                    break;
-                case 'A':
-                    OutputDebugStringA("A KEY");
-                    break;
-                case 'S':
-                    OutputDebugStringA("S KEY");
-                    break;
-                case 'D':
-                    OutputDebugStringA("D KEY");
-                    break;
-                case 'Q':
-                    OutputDebugStringA("Q KEY");
-                    break;
-                case 'E':
-                    OutputDebugStringA("E KEY");
-                    break;
-                case VK_SPACE:
-                    OutputDebugStringA("SPACEBAR");
-                    break;
-                case VK_LEFT:
-                    OutputDebugStringA("LEFT");
-                    break;
-                case VK_RIGHT:
-                    OutputDebugStringA("RIGHT");
-                    break;
-                case VK_UP:
-                    OutputDebugStringA("UP");
-                    break;
-                case VK_DOWN:
-                    OutputDebugStringA("DOWN");
-                    break;
+            if (was_down != is_down) {
+                switch(vkey_code) {
+                    case 'W':
+                        OutputDebugStringA("W KEY");
+                        break;
+                    case 'A':
+                        OutputDebugStringA("A KEY");
+                        break;
+                    case 'S':
+                        OutputDebugStringA("S KEY");
+                        break;
+                    case 'D':
+                        OutputDebugStringA("D KEY");
+                        break;
+                    case 'Q':
+                        OutputDebugStringA("Q KEY");
+                        break;
+                    case 'E':
+                        OutputDebugStringA("E KEY");
+                        break;
+                    case VK_SPACE:
+                        OutputDebugStringA("SPACEBAR");
+                        break;
+                    case VK_LEFT:
+                        OutputDebugStringA("LEFT");
+                        break;
+                    case VK_RIGHT:
+                        OutputDebugStringA("RIGHT");
+                        break;
+                    case VK_UP:
+                        OutputDebugStringA("UP");
+                        break;
+                    case VK_DOWN:
+                        OutputDebugStringA("DOWN");
+                        break;
+                }
+                if (is_down) {
+                    OutputDebugStringA(" is_down ");
+                } else {
+                    OutputDebugStringA(" is_up ");
+                }
+                if (was_down) {
+                    OutputDebugStringA(" was_down");
+                } else {
+                    OutputDebugStringA(" was_up");
+                }
+                OutputDebugStringA("\n");
             }
-            if (is_down) {
-                OutputDebugStringA(" is_down ");
-            } else {
-                OutputDebugStringA(" is_up ");
+            bool alt_key_was_down = ((l_param & (1<<29)) != 0);
+            if ((vkey_code == VK_F4) && alt_key_was_down) {
+                is_running = false;
             }
-            if (was_down) {
-                OutputDebugStringA(" was_down");
-            } else {
-                OutputDebugStringA(" was_up");
-            }
-            OutputDebugStringA("\n");
             break;
 
         case WM_PAINT: {
@@ -257,6 +333,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
             int x_offset = 0;
             int y_offset = 0;
+
+            win32_init_dsound(window, 48000, 48000*sizeof(int16_t)*2);
+
             is_running = true;
             while (is_running) {
                 MSG message;
