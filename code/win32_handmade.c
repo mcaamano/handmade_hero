@@ -402,165 +402,162 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     window_class.hInstance = instance;
     window_class.lpszClassName = "Handmade_Hero_Window_Class";
 
-    if (RegisterClass(&window_class)) {
-        // ask to create window
-        HWND window = CreateWindowExA(
-            0,
-            window_class.lpszClassName,
-            "Handmade Hero",
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            0,
-            0,
-            instance,
-            0);
-        if (window) {
-            /* 
-             * NOTE: Since we specified CS_OWNDC, we can just get one
-             * device context and use it forever because we are not
-             * sharing it with anyone.
-             */
-            HDC device_context = GetDC(window);
+    if (!RegisterClassA(&window_class)) {
+        OutputDebugStringA("RegisterClassA failed\n");
+        exit(1);
+    }
+    // ask to create window
+    HWND window = CreateWindowExA(
+        0,
+        window_class.lpszClassName,
+        "Handmade Hero",
+        WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        CW_USEDEFAULT,
+        0,
+        0,
+        instance,
+        0);
+    if (!window) {
+        OutputDebugStringA("CreateWindowExA failed\n");
+        exit(1);
+    }
+    /* 
+     * NOTE: Since we specified CS_OWNDC, we can just get one
+     * device context and use it forever because we are not
+     * sharing it with anyone.
+     */
+    HDC device_context = GetDC(window);
 
-            // graphics test
-            int x_offset = 0;
-            int y_offset = 0;
+    // graphics test
+    int x_offset = 0;
+    int y_offset = 0;
 
-            struct win32_sound_output sound_output = {0};
-            sound_output.samples_per_second = 48000;
-            sound_output.tone_hz = 256; // 256 cycles per second near middle C tone (261Hz)
-            sound_output.tone_volume = 3000;
-            sound_output.running_sample_index = 0;
-            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-            sound_output.bytes_per_sample = sizeof(int16_t)*2;
-            sound_output.secondary_buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
-            sound_output.latency_sample_count = sound_output.samples_per_second / 10;
+    struct win32_sound_output sound_output = {0};
+    sound_output.samples_per_second = 48000;
+    sound_output.tone_hz = 256; // 256 cycles per second near middle C tone (261Hz)
+    sound_output.tone_volume = 3000;
+    sound_output.running_sample_index = 0;
+    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+    sound_output.bytes_per_sample = sizeof(int16_t)*2;
+    sound_output.secondary_buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
+    sound_output.latency_sample_count = sound_output.samples_per_second / 10;
 
-            // sound test
-            win32_init_dsound(window, &sound_output);
-            win32_fill_soundbuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
-            result = secondary_buffer->lpVtbl->Play(secondary_buffer, 0, 0, DSBPLAY_LOOPING);
-            if (FAILED(result)) {
-                // TODO diagnostic
-                OutputDebugStringA("secondary_buffer->lpVtbl->Play failed\n");
-                exit(1);
-            }
-
-            is_running = true;
-            while (is_running) {
-                MSG message;
-                while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
-                    if (message.message == WM_QUIT) {
-                        is_running = false;
-                    }
-                    TranslateMessage(&message);
-                    DispatchMessageA(&message);
-                }
-
-                // Should we poll this more frequently
-                for (int controller_index=0; controller_index<XUSER_MAX_COUNT; ++controller_index) {
-                    XINPUT_STATE controller_state;
-                    if (XInputGetState_ && XInputGetState_(controller_index, &controller_state) == ERROR_SUCCESS) {
-                        // This controller is plugged in
-                        // TODO see if controller_state.dwPacketNumber increments too fast
-                        XINPUT_GAMEPAD *pad = &controller_state.Gamepad;
-                        if (pad->wButtons != 0) {
-                            OutputDebugStringA("Got GamePad Activity\n");
-                        }
-                        bool pad_up = pad->wButtons & XINPUT_GAMEPAD_DPAD_UP;
-                        bool pad_down = pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
-                        bool pad_left = pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
-                        bool pad_right = pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-                        bool pad_start = pad->wButtons & XINPUT_GAMEPAD_START;
-                        bool pad_back = pad->wButtons & XINPUT_GAMEPAD_BACK;
-                        bool pad_left_s = pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
-                        bool pad_right_s = pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
-                        bool pad_a = pad->wButtons & XINPUT_GAMEPAD_A;
-                        bool pad_b = pad->wButtons & XINPUT_GAMEPAD_B;
-                        bool pad_x = pad->wButtons & XINPUT_GAMEPAD_X;
-                        bool pad_y = pad->wButtons & XINPUT_GAMEPAD_Y;
-                        int16_t stick_x = pad->sThumbLX;
-                        int16_t stick_y = pad->sThumbLY;
-
-                        // Add some vertical movement
-                        y_offset++;
-
-                        XINPUT_VIBRATION vibration;
-                        vibration.wLeftMotorSpeed = 60000;
-                        vibration.wRightMotorSpeed = 60000;
-                        XInputSetState_(controller_index, &vibration);
-                    } else {
-                        // The controller is not available
-                    }
-                }
-
-                render_weird_gradient(&global_backbuffer, x_offset, y_offset);
-
-                DWORD play_cursor;
-                DWORD write_cursor;
-                DWORD byte_to_lock;
-                DWORD bytes_to_write;
-                DWORD target_cursor;
-
-                // After init check current position and fill in the rest
-                result = secondary_buffer->lpVtbl->GetCurrentPosition(secondary_buffer, &play_cursor, &write_cursor);
-                if (FAILED(result)) {
-                    // TODO diagnostic
-                    // OutputDebugStringA("secondary_buffer->lpVtbl->GetCurrentPosition failed\n");
-                    return 0;
-                }
-                byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
-                target_cursor = ((play_cursor + (sound_output.latency_sample_count*sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
-                bytes_to_write = 0;
-                // TODO change this to using lower latency offset from the playcursor
-                // when we actually start having sound effects
-                if (byte_to_lock > target_cursor) {
-                    // case where we have 2 regions to write (=)
-                    // |           |play_cursor                 |byte_to_write
-                    // |===========v____________v_______________v===============|
-                    // |                        |write_cursor
-                    //
-                    bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
-                    bytes_to_write += target_cursor;
-                } else {
-                    // case where we only have 1 region to write (=)
-                    // |           |play_cursor
-                    // |___v=======v___________________v______________________|
-                    // |   |byte_to_write               |write_cursor
-                    //
-                    bytes_to_write = target_cursor - byte_to_lock;
-                }
-                win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write);
-
-                struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
-
-                win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, &global_backbuffer);
-
-                if (tone_up_event) {
-                    sound_output.tone_hz = sound_output.tone_hz+50;
-                    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-                    tone_up_event = false;
-                } else if (tone_down_event) {
-                    sound_output.tone_hz = sound_output.tone_hz-50;
-                    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-                    tone_down_event = false;
-                }
-
-                x_offset++;
-                // y_offset++;
-            }
-        } else {
-            // TODO log error
-        }
-
-    } else {
-        // TODO log error
+    // sound test
+    win32_init_dsound(window, &sound_output);
+    win32_fill_soundbuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
+    result = secondary_buffer->lpVtbl->Play(secondary_buffer, 0, 0, DSBPLAY_LOOPING);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        OutputDebugStringA("secondary_buffer->lpVtbl->Play failed\n");
+        exit(1);
     }
 
+    is_running = true;
+    while (is_running) {
+        MSG message;
+        while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
+            if (message.message == WM_QUIT) {
+                is_running = false;
+            }
+            TranslateMessage(&message);
+            DispatchMessageA(&message);
+        }
 
+        // Should we poll this more frequently
+        for (int controller_index=0; controller_index<XUSER_MAX_COUNT; ++controller_index) {
+            XINPUT_STATE controller_state;
+            if (XInputGetState_ && XInputGetState_(controller_index, &controller_state) == ERROR_SUCCESS) {
+                // This controller is plugged in
+                // TODO see if controller_state.dwPacketNumber increments too fast
+                XINPUT_GAMEPAD *pad = &controller_state.Gamepad;
+                if (pad->wButtons != 0) {
+                    OutputDebugStringA("Got GamePad Activity\n");
+                }
+                bool pad_up = pad->wButtons & XINPUT_GAMEPAD_DPAD_UP;
+                bool pad_down = pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
+                bool pad_left = pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
+                bool pad_right = pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
+                bool pad_start = pad->wButtons & XINPUT_GAMEPAD_START;
+                bool pad_back = pad->wButtons & XINPUT_GAMEPAD_BACK;
+                bool pad_left_s = pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
+                bool pad_right_s = pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
+                bool pad_a = pad->wButtons & XINPUT_GAMEPAD_A;
+                bool pad_b = pad->wButtons & XINPUT_GAMEPAD_B;
+                bool pad_x = pad->wButtons & XINPUT_GAMEPAD_X;
+                bool pad_y = pad->wButtons & XINPUT_GAMEPAD_Y;
+                int16_t stick_x = pad->sThumbLX;
+                int16_t stick_y = pad->sThumbLY;
+
+                // Add some vertical movement
+                y_offset++;
+
+                XINPUT_VIBRATION vibration;
+                vibration.wLeftMotorSpeed = 60000;
+                vibration.wRightMotorSpeed = 60000;
+                XInputSetState_(controller_index, &vibration);
+            } else {
+                // The controller is not available
+            }
+        }
+
+        render_weird_gradient(&global_backbuffer, x_offset, y_offset);
+
+        DWORD play_cursor;
+        DWORD write_cursor;
+        DWORD byte_to_lock;
+        DWORD bytes_to_write;
+        DWORD target_cursor;
+
+        // After init check current position and fill in the rest
+        result = secondary_buffer->lpVtbl->GetCurrentPosition(secondary_buffer, &play_cursor, &write_cursor);
+        if (FAILED(result)) {
+            // TODO diagnostic
+            // OutputDebugStringA("secondary_buffer->lpVtbl->GetCurrentPosition failed\n");
+            return 0;
+        }
+        byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
+        target_cursor = ((play_cursor + (sound_output.latency_sample_count*sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
+        bytes_to_write = 0;
+        // TODO change this to using lower latency offset from the playcursor
+        // when we actually start having sound effects
+        if (byte_to_lock > target_cursor) {
+            // case where we have 2 regions to write (=)
+            // |           |play_cursor                 |byte_to_write
+            // |===========v____________v_______________v===============|
+            // |                        |write_cursor
+            //
+            bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
+            bytes_to_write += target_cursor;
+        } else {
+            // case where we only have 1 region to write (=)
+            // |           |play_cursor
+            // |___v=======v___________________v______________________|
+            // |   |byte_to_write               |write_cursor
+            //
+            bytes_to_write = target_cursor - byte_to_lock;
+        }
+        win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write);
+
+        struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
+
+        win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, &global_backbuffer);
+
+        if (tone_up_event) {
+            sound_output.tone_hz = sound_output.tone_hz+50;
+            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+            tone_up_event = false;
+        } else if (tone_down_event) {
+            sound_output.tone_hz = sound_output.tone_hz-50;
+            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+            tone_down_event = false;
+        }
+
+        x_offset++;
+        // y_offset++;
+    }
 
     return 0;
 }
