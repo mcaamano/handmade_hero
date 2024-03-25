@@ -465,7 +465,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     LARGE_INTEGER last_counter;
     QueryPerformanceCounter(&last_counter);
-    int64_t last_cycle_count = __rdtsc();
+    uint64_t last_cycle_count = __rdtsc();
     while (is_running) {
         MSG message;
         while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
@@ -568,12 +568,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         x_offset++;
         // y_offset++;
 
-        int64_t end_cycle_count = __rdtsc();
+        uint64_t end_cycle_count = __rdtsc();
 
         LARGE_INTEGER end_counter;
         QueryPerformanceCounter(&end_counter);
 
-        int64_t cycles_elapsed = end_cycle_count - last_cycle_count;
+        uint64_t cycles_elapsed = end_cycle_count - last_cycle_count;
         float mega_cycles_per_frame = (float)cycles_elapsed/(1000.0f*1000.0f);
         int64_t counter_elapsed = end_counter.QuadPart - last_counter.QuadPart;
         float milliseconds_per_frame = ((float)counter_elapsed*1000.0f) / (float)perfcounter_frequency;
