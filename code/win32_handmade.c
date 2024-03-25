@@ -38,9 +38,14 @@ struct win32_sound_output {
     int wave_period;
     int bytes_per_sample;
     int secondary_buffer_size;
+    float tSine;
+    int latency_sample_count;
 };
 
 static bool is_running;
+
+static bool tone_up_event = false;
+static bool tone_down_event = false;
 
 static struct win32_offscreen_buffer global_backbuffer;
 static LPDIRECTSOUND direct_sound;
@@ -160,31 +165,33 @@ static void win32_fill_soundbuffer(struct win32_sound_output *sound_output, DWOR
     DWORD region1_sample_count = region1_size/sound_output->bytes_per_sample;
     int16_t *sample_out = (int16_t *)region1;
     for(DWORD sample_index = 0; sample_index<region1_sample_count; ++sample_index ) {
-        float t = 2.0f * PI * (float)sound_output->running_sample_index / (float)sound_output->wave_period;
-        float sine_value = sinf(t);
+        float sine_value = sinf(sound_output->tSine);
         int16_t sample_value = (int16_t)(sine_value*(float)sound_output->tone_volume);
         *sample_out++ = sample_value;
         *sample_out++ = sample_value;
+
+        sound_output->tSine += 2.0f*PI*1.0f/(float)sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
     DWORD region2_sample_count = region2_size/sound_output->bytes_per_sample;
     sample_out = (int16_t *)region2;
     for(DWORD sample_index = 0; sample_index<region2_sample_count; ++sample_index ) {
-        float t = 2.0f * PI * (float)sound_output->running_sample_index / (float)sound_output->wave_period;
-        float sine_value = sinf(t);
+        float sine_value = sinf(sound_output->tSine);
         int16_t sample_value = (int16_t)(sine_value*(float)sound_output->tone_volume);
         *sample_out++ = sample_value;
         *sample_out++ = sample_value;
+
+        sound_output->tSine += 2.0f*PI*1.0f/(float)sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
     result = secondary_buffer->lpVtbl->Unlock(
         secondary_buffer,
-        &region1, region1_size,
-        &region2, region2_size);
+        region1, region1_size,
+        region2, region2_size);
     if (FAILED(result)) {
         // TODO diagnostic
-        // OutputDebugStringA("secondary_buffer->lpVtbl->Unlock failed\n");
-        // return;
+        OutputDebugStringA("secondary_buffer->lpVtbl->Unlock failed\n");
+        return;
     }
     // OutputDebugStringA("secondary_buffer Unlock OK\n");
 }
@@ -328,9 +335,17 @@ LRESULT win32_main_window_callback(HWND window,
                         OutputDebugStringA("RIGHT");
                         break;
                     case VK_UP:
+                        if (is_down && !was_down) {
+                            OutputDebugStringA("TONE_UP EVENT\n");
+                            tone_up_event = true;
+                        }
                         OutputDebugStringA("UP");
                         break;
                     case VK_DOWN:
+                        if (is_down && !was_down) {
+                            OutputDebugStringA("TONE_DOWN EVENT\n");
+                            tone_down_event = true;
+                        }
                         OutputDebugStringA("DOWN");
                         break;
                 }
@@ -369,7 +384,6 @@ LRESULT win32_main_window_callback(HWND window,
         }
     return result;
 }
-
 
 int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_line, int show_code) {
     HRESULT result;
@@ -419,10 +433,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
             sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
             sound_output.bytes_per_sample = sizeof(int16_t)*2;
             sound_output.secondary_buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
+            sound_output.latency_sample_count = sound_output.samples_per_second / 10;
 
             // sound test
             win32_init_dsound(window, &sound_output);
-            win32_fill_soundbuffer(&sound_output, 0, sound_output.secondary_buffer_size);
+            win32_fill_soundbuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
             result = secondary_buffer->lpVtbl->Play(secondary_buffer, 0, 0, DSBPLAY_LOOPING);
             if (FAILED(result)) {
                 // TODO diagnostic
@@ -480,48 +495,57 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
                 render_weird_gradient(&global_backbuffer, x_offset, y_offset);
 
-                DWORD current_play_cursor;
-                DWORD current_write_cursor;
+                DWORD play_cursor;
+                DWORD write_cursor;
                 DWORD byte_to_lock;
                 DWORD bytes_to_write;
+                DWORD target_cursor;
 
                 // After init check current position and fill in the rest
-                result = secondary_buffer->lpVtbl->GetCurrentPosition(secondary_buffer, &current_play_cursor, &current_write_cursor);
+                result = secondary_buffer->lpVtbl->GetCurrentPosition(secondary_buffer, &play_cursor, &write_cursor);
                 if (FAILED(result)) {
                     // TODO diagnostic
                     // OutputDebugStringA("secondary_buffer->lpVtbl->GetCurrentPosition failed\n");
-                    return;
+                    return 0;
                 }
                 byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
+                target_cursor = ((play_cursor + (sound_output.latency_sample_count*sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
                 bytes_to_write = 0;
                 // TODO change this to using lower latency offset from the playcursor
                 // when we actually start having sound effects
-                if (byte_to_lock == current_play_cursor) {
-                    bytes_to_write = 0;
-                } else if (byte_to_lock > current_play_cursor) {
+                if (byte_to_lock > target_cursor) {
                     // case where we have 2 regions to write (=)
                     // |           |play_cursor                 |byte_to_write
                     // |===========v____________v_______________v===============|
                     // |                        |write_cursor
                     //
                     bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
-                    bytes_to_write += current_play_cursor;
+                    bytes_to_write += target_cursor;
                 } else {
                     // case where we only have 1 region to write (=)
                     // |           |play_cursor
                     // |___v=======v___________________v______________________|
                     // |   |byte_to_write               |write_cursor
                     //
-                    bytes_to_write = current_play_cursor - byte_to_lock;
+                    bytes_to_write = target_cursor - byte_to_lock;
                 }
-
                 win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write);
 
                 struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
 
                 win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, &global_backbuffer);
 
-                // x_offset++;
+                if (tone_up_event) {
+                    sound_output.tone_hz = sound_output.tone_hz+50;
+                    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+                    tone_up_event = false;
+                } else if (tone_down_event) {
+                    sound_output.tone_hz = sound_output.tone_hz-50;
+                    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+                    tone_down_event = false;
+                }
+
+                x_offset++;
                 // y_offset++;
             }
         } else {
