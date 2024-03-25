@@ -60,6 +60,10 @@ static x_input_set_state *XInputSetState_;
 
 static void win32_load_xinput(void) {
     HMODULE x_input_library = LoadLibraryA("xinput1_4.dll");
+    if(!x_input_library) {
+        // Try 9.1
+        x_input_library = LoadLibraryA("xinput9_1_0.dll");
+    }
     if (!x_input_library) {
         // try 1.3
         x_input_library = LoadLibraryA("xinput1_3.dll");
