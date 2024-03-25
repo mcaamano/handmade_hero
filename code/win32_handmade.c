@@ -222,11 +222,11 @@ static void render_weird_gradient(struct win32_offscreen_buffer *buffer, int x_o
                 Little Endian Architecture ends up with 0xXXBBGGRR
                 MS swapped so that on memory it looks like 0xXXRRGGBB
             */
-            int blue = (x + x_offset);
-            int green = (y + y_offset);
-            int red = 0;
+            uint8_t blue = x + x_offset;
+            uint8_t green = y + y_offset;
+            uint8_t red = 0;
            
-            *pixel++ = (red<<16 | green<<8 | blue);
+            *pixel++ = ((red<<16) | (green<<8) | blue);
         }
         row += buffer->pitch;
     }
@@ -395,12 +395,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     WNDCLASSA window_class = {0};
 
+    win32_resize_dib_section(&global_backbuffer, 1280, 720);
+
     window_class.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
     window_class.lpfnWndProc = win32_main_window_callback;
     window_class.hInstance = instance;
     window_class.lpszClassName = "Handmade_Hero_Window_Class";
-
-    win32_resize_dib_section(&global_backbuffer, 1280, 720);
 
     if (RegisterClass(&window_class)) {
         // ask to create window
