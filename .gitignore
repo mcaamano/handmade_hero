@@ -1,3 +1,7 @@
+# ignore working directories
+build
+data
+
 .vs
 
 # Prerequisites
