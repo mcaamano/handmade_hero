@@ -13,6 +13,7 @@
 
 // TODO implement sine ourselves
 #include <math.h>
+#include <stdio.h>
 
 #define BYTES_PER_PIXEL             4
 #define PI                          3.14159265359f
@@ -402,6 +403,11 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     window_class.hInstance = instance;
     window_class.lpszClassName = "Handmade_Hero_Window_Class";
 
+    LARGE_INTEGER perfcounter_frequency_result;
+    int64_t perfcounter_frequency;
+    QueryPerformanceFrequency(&perfcounter_frequency_result);
+    perfcounter_frequency = perfcounter_frequency_result.QuadPart;
+
     if (!RegisterClassA(&window_class)) {
         OutputDebugStringA("RegisterClassA failed\n");
         exit(1);
@@ -456,6 +462,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     }
 
     is_running = true;
+
+    LARGE_INTEGER last_counter;
+    QueryPerformanceCounter(&last_counter);
+    int64_t last_cycle_count = __rdtsc();
     while (is_running) {
         MSG message;
         while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
@@ -557,6 +567,24 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
         x_offset++;
         // y_offset++;
+
+        int64_t end_cycle_count = __rdtsc();
+
+        LARGE_INTEGER end_counter;
+        QueryPerformanceCounter(&end_counter);
+
+        int64_t cycles_elapsed = end_cycle_count - last_cycle_count;
+        float mega_cycles_per_frame = (float)cycles_elapsed/(1000.0f*1000.0f);
+        int64_t counter_elapsed = end_counter.QuadPart - last_counter.QuadPart;
+        float milliseconds_per_frame = ((float)counter_elapsed*1000.0f) / (float)perfcounter_frequency;
+        float frames_per_second = (float)((float)perfcounter_frequency/(float)counter_elapsed);
+
+        char buffer[256];
+        sprintf(buffer, "ms/frame: %.02f | FPS: %.02f | MegaCycles/Frame: %.02f\n", milliseconds_per_frame, frames_per_second, mega_cycles_per_frame);
+        OutputDebugStringA(buffer);
+
+        last_counter = end_counter;
+        last_cycle_count = end_cycle_count;
     }
 
     return 0;
