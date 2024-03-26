@@ -15,6 +15,9 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "handmade.h"
+#include "handmade.c"
+
 #define BYTES_PER_PIXEL             4
 #define PI                          3.14159265359f
 
@@ -210,28 +213,6 @@ static struct win32_window_dimension win32_get_window_dimensions(HWND window) {
     return result;
 }
 
-static void render_weird_gradient(struct win32_offscreen_buffer *buffer, int x_offset, int y_offset) {
-    // Draw some pixels
-    uint8_t *row = (uint8_t *)buffer->memory;
-    for (int y=0; y<buffer->height; ++y) {
-        uint32_t *pixel = (uint32_t *)row;
-        for (int x=0; x<buffer->width; ++x) {
-            /*
-                                  0  1  2  3
-                Pixel in Memory: 00 00 00 00
-                                 BB GG RR XX
-                Little Endian Architecture ends up with 0xXXBBGGRR
-                MS swapped so that on memory it looks like 0xXXRRGGBB
-            */
-            uint8_t blue = x + x_offset;
-            uint8_t green = y + y_offset;
-            uint8_t red = 0;
-           
-            *pixel++ = ((red<<16) | (green<<8) | blue);
-        }
-        row += buffer->pitch;
-    }
-}
 
 static void win32_resize_dib_section(struct win32_offscreen_buffer *buffer, int width, int height) {
     // TODO Bulletproof this later, maybe don't free first
@@ -513,7 +494,12 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
             }
         }
 
-        render_weird_gradient(&global_backbuffer, x_offset, y_offset);
+        struct game_offscreen_buffer buffer = {};
+        buffer.memory = global_backbuffer.memory;
+        buffer.width = global_backbuffer.width;
+        buffer.height = global_backbuffer.height;
+        buffer.pitch = global_backbuffer.pitch;
+        game_update_and_render(&buffer, x_offset, y_offset);
 
         DWORD play_cursor;
         DWORD write_cursor;
@@ -579,9 +565,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         float milliseconds_per_frame = ((float)counter_elapsed*1000.0f) / (float)perfcounter_frequency;
         float frames_per_second = (float)((float)perfcounter_frequency/(float)counter_elapsed);
 
-        char buffer[256];
-        sprintf(buffer, "ms/frame: %.02f | FPS: %.02f | MegaCycles/Frame: %.02f\n", milliseconds_per_frame, frames_per_second, mega_cycles_per_frame);
-        OutputDebugStringA(buffer);
+        char stats_buffer[256];
+        sprintf(stats_buffer, "ms/frame: %.02f | FPS: %.02f | MegaCycles/Frame: %.02f\n", milliseconds_per_frame, frames_per_second, mega_cycles_per_frame);
+        OutputDebugStringA(stats_buffer);
 
         last_counter = end_counter;
         last_cycle_count = end_cycle_count;
