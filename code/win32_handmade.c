@@ -482,13 +482,24 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
                 int16_t stick_x = pad->sThumbLX;
                 int16_t stick_y = pad->sThumbLY;
 
-                // Add some vertical movement
-                y_offset++;
+                x_offset += stick_x / 4096;
+                y_offset += stick_y / 4096;
 
-                XINPUT_VIBRATION vibration;
-                vibration.wLeftMotorSpeed = 60000;
-                vibration.wRightMotorSpeed = 60000;
-                XInputSetState_(controller_index, &vibration);
+                sound_output.tone_hz = 512 + (int)(256.0f*((float)stick_y / 30000.0f));
+                sound_output.wave_period = sound_output.samples_per_second/sound_output.tone_hz;
+
+                // XINPUT_VIBRATION vibration;
+                // vibration.wLeftMotorSpeed = 0;
+                // vibration.wRightMotorSpeed = 0;
+                // if (pad_x && pad_b) {
+                //     vibration.wLeftMotorSpeed = 60000;
+                //     vibration.wRightMotorSpeed = 60000;
+                // } else if (pad_x) {
+                //     vibration.wLeftMotorSpeed = 60000;
+                // } else if (pad_b) {
+                //     vibration.wRightMotorSpeed = 60000;
+                // }
+                // XInputSetState_(controller_index, &vibration);
             } else {
                 // The controller is not available
             }
@@ -550,9 +561,6 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
             sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
             tone_down_event = false;
         }
-
-        x_offset++;
-        // y_offset++;
 
         uint64_t end_cycle_count = __rdtsc();
 
