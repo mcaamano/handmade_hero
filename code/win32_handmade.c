@@ -19,7 +19,6 @@
 #include "handmade.c"
 
 #define BYTES_PER_PIXEL             4
-#define PI                          3.14159265359f
 
 struct win32_offscreen_buffer {
     BITMAPINFO info;
@@ -36,6 +35,7 @@ struct win32_window_dimension {
 
 struct win32_sound_output {
     int samples_per_second;
+    int base_tone;
     int tone_hz;
     int16_t tone_volume;
     uint32_t running_sample_index;
@@ -147,7 +147,43 @@ static void win32_init_dsound(HWND window, struct win32_sound_output *sound_outp
 }
 
 
-static void win32_fill_soundbuffer(struct win32_sound_output *sound_output, DWORD byte_to_lock, DWORD bytes_to_write) {
+static void win32_clear_soundbuffer(struct win32_sound_output *sound_output) {
+    HRESULT result;
+    void *region1;
+    DWORD region1_size;
+    void *region2;
+    DWORD region2_size;
+    result = secondary_buffer->lpVtbl->Lock(
+        secondary_buffer,
+        0,
+        sound_output->secondary_buffer_size,
+        &region1, &region1_size,
+        &region2, &region2_size, 0);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        // OutputDebugStringA("secondary_buffer->lpVtbl->Lock failed\n");
+        return;
+    }
+    int8_t *dest_sample = (int8_t *)region1;
+    for(DWORD byte_index = 0; byte_index<region1_size; ++byte_index ) {
+        *dest_sample++ = 0;
+    }
+    dest_sample = (int8_t *)region2;
+    for(DWORD byte_index = 0; byte_index<region2_size; ++byte_index ) {
+        *dest_sample++ = 0;
+    }
+    result = secondary_buffer->lpVtbl->Unlock(
+        secondary_buffer,
+        region1, region1_size,
+        region2, region2_size);
+    if (FAILED(result)) {
+        // TODO diagnostic
+        // OutputDebugStringA("secondary_buffer->lpVtbl->Unlock failed\n");
+        return;
+    }
+}
+
+static void win32_fill_soundbuffer(struct win32_sound_output *sound_output, DWORD byte_to_lock, DWORD bytes_to_write, struct game_sound_output_buffer *source_buffer) {
     HRESULT result;
     // DirectSound output test
     // int16 int16 int16 int16 
@@ -171,25 +207,20 @@ static void win32_fill_soundbuffer(struct win32_sound_output *sound_output, DWOR
     // OutputDebugStringA("secondary_buffer Lock OK\n");
     // TODO assert region1_size and region2_size are valid
     DWORD region1_sample_count = region1_size/sound_output->bytes_per_sample;
-    int16_t *sample_out = (int16_t *)region1;
+    int16_t *source_sample = source_buffer->samples;
+    int16_t *dest_sample = (int16_t *)region1;
     for(DWORD sample_index = 0; sample_index<region1_sample_count; ++sample_index ) {
-        float sine_value = sinf(sound_output->tSine);
-        int16_t sample_value = (int16_t)(sine_value*(float)sound_output->tone_volume);
-        *sample_out++ = sample_value;
-        *sample_out++ = sample_value;
+        *dest_sample++ = *source_sample++;
+        *dest_sample++ = *source_sample++;
 
-        sound_output->tSine += 2.0f*PI*1.0f/(float)sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
     DWORD region2_sample_count = region2_size/sound_output->bytes_per_sample;
-    sample_out = (int16_t *)region2;
+    dest_sample = (int16_t *)region2;
     for(DWORD sample_index = 0; sample_index<region2_sample_count; ++sample_index ) {
-        float sine_value = sinf(sound_output->tSine);
-        int16_t sample_value = (int16_t)(sine_value*(float)sound_output->tone_volume);
-        *sample_out++ = sample_value;
-        *sample_out++ = sample_value;
+        *dest_sample++ = *source_sample++;
+        *dest_sample++ = *source_sample++;
 
-        sound_output->tSine += 2.0f*PI*1.0f/(float)sound_output->wave_period;
         ++sound_output->running_sample_index;
     }
     result = secondary_buffer->lpVtbl->Unlock(
@@ -424,7 +455,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     struct win32_sound_output sound_output = {0};
     sound_output.samples_per_second = 48000;
-    sound_output.tone_hz = 256; // 256 cycles per second near middle C tone (261Hz)
+    sound_output.base_tone = 256; // 256 cycles per second near middle C tone (261Hz)
+    sound_output.tone_hz = 256; 
     sound_output.tone_volume = 3000;
     sound_output.running_sample_index = 0;
     sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
@@ -434,7 +466,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     // sound test
     win32_init_dsound(window, &sound_output);
-    win32_fill_soundbuffer(&sound_output, 0, sound_output.latency_sample_count*sound_output.bytes_per_sample);
+    win32_clear_soundbuffer(&sound_output);
     result = secondary_buffer->lpVtbl->Play(secondary_buffer, 0, 0, DSBPLAY_LOOPING);
     if (FAILED(result)) {
         // TODO diagnostic
@@ -443,6 +475,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     }
 
     is_running = true;
+
+    // TODO pool this into bitmap virtualalloc
+    int16_t *samples = (int16_t *) VirtualAlloc(NULL, sound_output.secondary_buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
     LARGE_INTEGER last_counter;
     QueryPerformanceCounter(&last_counter);
@@ -485,7 +520,17 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
                 x_offset += stick_x / 4096;
                 y_offset += stick_y / 4096;
 
-                sound_output.tone_hz = 512 + (int)(256.0f*((float)stick_y / 30000.0f));
+                if (tone_up_event) {
+                    sound_output.base_tone = sound_output.tone_hz+50;
+                    // sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+                    tone_up_event = false;
+                } else if (tone_down_event) {
+                    sound_output.base_tone = sound_output.tone_hz-50;
+                    // sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
+                    tone_down_event = false;
+                }
+
+                sound_output.tone_hz = sound_output.base_tone + (int)(256.0f*((float)stick_y / 30000.0f));
                 sound_output.wave_period = sound_output.samples_per_second/sound_output.tone_hz;
 
                 // XINPUT_VIBRATION vibration;
@@ -505,12 +550,6 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
             }
         }
 
-        struct game_offscreen_buffer buffer = {};
-        buffer.memory = global_backbuffer.memory;
-        buffer.width = global_backbuffer.width;
-        buffer.height = global_backbuffer.height;
-        buffer.pitch = global_backbuffer.pitch;
-        game_update_and_render(&buffer, x_offset, y_offset);
 
         DWORD play_cursor;
         DWORD write_cursor;
@@ -518,49 +557,54 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         DWORD bytes_to_write;
         DWORD target_cursor;
 
+        bool sound_is_valid = false;
+
         // After init check current position and fill in the rest
         result = secondary_buffer->lpVtbl->GetCurrentPosition(secondary_buffer, &play_cursor, &write_cursor);
-        if (FAILED(result)) {
-            // TODO diagnostic
-            // OutputDebugStringA("secondary_buffer->lpVtbl->GetCurrentPosition failed\n");
-            return 0;
+        if (SUCCEEDED(result)) {
+            byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
+            target_cursor = ((play_cursor + (sound_output.latency_sample_count*sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
+            bytes_to_write = 0;
+            // TODO change this to using lower latency offset from the playcursor
+            // when we actually start having sound effects
+            if (byte_to_lock > target_cursor) {
+                // case where we have 2 regions to write (=)
+                // |           |play_cursor                 |byte_to_write
+                // |===========v____________v_______________v===============|
+                // |                        |write_cursor
+                //
+                bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
+                bytes_to_write += target_cursor;
+            } else {
+                // case where we only have 1 region to write (=)
+                // |           |play_cursor
+                // |___v=======v___________________v______________________|
+                // |   |byte_to_write               |write_cursor
+                //
+                bytes_to_write = target_cursor - byte_to_lock;
+            }
+            sound_is_valid = true;
         }
-        byte_to_lock = (sound_output.running_sample_index*sound_output.bytes_per_sample) % sound_output.secondary_buffer_size;
-        target_cursor = ((play_cursor + (sound_output.latency_sample_count*sound_output.bytes_per_sample)) % sound_output.secondary_buffer_size);
-        bytes_to_write = 0;
-        // TODO change this to using lower latency offset from the playcursor
-        // when we actually start having sound effects
-        if (byte_to_lock > target_cursor) {
-            // case where we have 2 regions to write (=)
-            // |           |play_cursor                 |byte_to_write
-            // |===========v____________v_______________v===============|
-            // |                        |write_cursor
-            //
-            bytes_to_write = sound_output.secondary_buffer_size - byte_to_lock;
-            bytes_to_write += target_cursor;
-        } else {
-            // case where we only have 1 region to write (=)
-            // |           |play_cursor
-            // |___v=======v___________________v______________________|
-            // |   |byte_to_write               |write_cursor
-            //
-            bytes_to_write = target_cursor - byte_to_lock;
+
+        struct game_sound_output_buffer sound_buffer = {0};
+        sound_buffer.samples_per_second = sound_output.samples_per_second;
+        sound_buffer.sample_count = bytes_to_write/sound_output.bytes_per_sample;
+        sound_buffer.samples = samples;
+
+        struct game_offscreen_buffer buffer = {0};
+        buffer.memory = global_backbuffer.memory;
+        buffer.width = global_backbuffer.width;
+        buffer.height = global_backbuffer.height;
+        buffer.pitch = global_backbuffer.pitch;
+        game_update_and_render(&buffer, x_offset, y_offset, &sound_buffer, sound_output.tone_hz);
+
+        if (sound_is_valid) {
+            win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
         }
-        win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write);
 
         struct win32_window_dimension window_dim = win32_get_window_dimensions(window);
 
         win32_display_buffer_in_window(device_context, window_dim.width, window_dim.height, &global_backbuffer);
-
-        if (tone_up_event) {
-            sound_output.tone_hz = sound_output.tone_hz+50;
-            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-            tone_up_event = false;
-        } else if (tone_down_event) {
-            sound_output.tone_hz = sound_output.tone_hz-50;
-            sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-            tone_down_event = false;
-        }
 
         uint64_t end_cycle_count = __rdtsc();
 

@@ -26,6 +26,8 @@
         "*.HLASM*": "hlasm",
         "*.HLA*": "hlasm",
         "xinput.h": "c",
-        "dsound.h": "c"
+        "dsound.h": "c",
+        "stdint.h": "c",
+        "stdbool.h": "c"
     },
 }
