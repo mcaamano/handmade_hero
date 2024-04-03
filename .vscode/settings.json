@@ -28,6 +28,7 @@
         "xinput.h": "c",
         "dsound.h": "c",
         "stdint.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "stdio.h": "c"
     },
 }

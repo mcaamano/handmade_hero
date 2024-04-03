@@ -44,11 +44,38 @@ static void render_weird_gradient(struct game_offscreen_buffer *buffer, int blue
     }
 }
 
-void game_update_and_render(struct game_offscreen_buffer *buffer,
-                            int blue_offset,
-                            int green_offset,
-                            struct game_sound_output_buffer *sound_buffer,
-                            int tone_hz) {
+void game_update_and_render(struct game_input *input,
+                            struct game_offscreen_buffer *buffer,
+                            struct game_sound_output_buffer *sound_buffer) {
+    static int blue_offset = 0;
+    static int green_offset = 0;
+    static int tone_hz = 512;
+    static int base_tone_hz = 512;
+    static int tone_volume = 3000;
+    static int wave_period;
+
+    struct game_controller_input *input0 = &input->controllers[0];
+
+    if (input0->is_analog) {
+        // use analog movement tuning
+        tone_hz = base_tone_hz + (int)(256.0f*input0->end_y);
+        blue_offset += (int)(4.0f*input0->end_x);
+    } else {
+        // use digial movement tuning
+    }
+    // input.a_btn_ended_down
+    // input.a_btn_half_transition_count
+    if (input0->down.ended_down) {
+        green_offset += 1;
+    }
+    // input.start_x
+    // input.min_x
+    // input.max_x
+    // input.end_x
+
+
+    // wave_period = sound_output.samples_per_second/sound_output.tone_hz;
+
     // TODO allow sample offset here for more robust platform options
     output_game_sound(sound_buffer, tone_hz);
     render_weird_gradient(buffer, blue_offset, green_offset);

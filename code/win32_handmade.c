@@ -15,41 +15,11 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "win32_handmade.h"
 #include "handmade.h"
 #include "handmade.c"
 
-#define BYTES_PER_PIXEL             4
-
-struct win32_offscreen_buffer {
-    BITMAPINFO info;
-    void *memory;
-    int width;
-    int height;
-    int pitch;
-};
-
-struct win32_window_dimension {
-    int width;
-    int height;
-};
-
-struct win32_sound_output {
-    int samples_per_second;
-    int base_tone;
-    int tone_hz;
-    int16_t tone_volume;
-    uint32_t running_sample_index;
-    int wave_period;
-    int bytes_per_sample;
-    int secondary_buffer_size;
-    float tSine;
-    int latency_sample_count;
-};
-
 static bool is_running;
-
-static bool tone_up_event = false;
-static bool tone_down_event = false;
 
 static struct win32_offscreen_buffer global_backbuffer;
 static LPDIRECTSOUND direct_sound;
@@ -78,6 +48,17 @@ static void win32_load_xinput(void) {
     } else {
         // TODO diagnostic
     }
+}
+
+static void win32_process_xinput_digital_button(DWORD xinput_button_state,
+                                                struct game_button_state *old_state,
+                                                DWORD button_bit,
+                                                struct game_button_state *new_state) {
+
+    new_state->ended_down = (xinput_button_state & button_bit) == button_bit;
+    new_state->half_transition_count = 
+        (old_state->ended_down != new_state->ended_down) ? 1 : 0;
+
 }
 
 // typedef HRESULT WINAPI x_direct_sound_create(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
@@ -352,17 +333,9 @@ LRESULT win32_main_window_callback(HWND window,
                         OutputDebugStringA("RIGHT");
                         break;
                     case VK_UP:
-                        if (is_down && !was_down) {
-                            OutputDebugStringA("TONE_UP EVENT\n");
-                            tone_up_event = true;
-                        }
                         OutputDebugStringA("UP");
                         break;
                     case VK_DOWN:
-                        if (is_down && !was_down) {
-                            OutputDebugStringA("TONE_DOWN EVENT\n");
-                            tone_down_event = true;
-                        }
                         OutputDebugStringA("DOWN");
                         break;
                 }
@@ -449,17 +422,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
      */
     HDC device_context = GetDC(window);
 
-    // graphics test
-    int x_offset = 0;
-    int y_offset = 0;
-
     struct win32_sound_output sound_output = {0};
     sound_output.samples_per_second = 48000;
-    sound_output.base_tone = 256; // 256 cycles per second near middle C tone (261Hz)
-    sound_output.tone_hz = 256; 
-    sound_output.tone_volume = 3000;
     sound_output.running_sample_index = 0;
-    sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
     sound_output.bytes_per_sample = sizeof(int16_t)*2;
     sound_output.secondary_buffer_size = sound_output.samples_per_second * sound_output.bytes_per_sample;
     sound_output.latency_sample_count = sound_output.samples_per_second / 10;
@@ -479,6 +444,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     // TODO pool this into bitmap virtualalloc
     int16_t *samples = (int16_t *) VirtualAlloc(NULL, sound_output.secondary_buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
+    struct game_input input[2] = {0};
+    struct game_input *new_input = &input[0];
+    struct game_input *old_input = &input[1];
+
     LARGE_INTEGER last_counter;
     QueryPerformanceCounter(&last_counter);
     uint64_t last_cycle_count = __rdtsc();
@@ -493,7 +462,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         }
 
         // Should we poll this more frequently
-        for (int controller_index=0; controller_index<XUSER_MAX_COUNT; ++controller_index) {
+        int max_controller_count = XUSER_MAX_COUNT;
+        if (max_controller_count > ARRAY_COUNT(new_input->controllers)) {
+            max_controller_count = ARRAY_COUNT(new_input->controllers);
+        }
+        for (int controller_index=0; controller_index<max_controller_count; ++controller_index) {
+            struct game_controller_input *old_controller = &old_input->controllers[controller_index];
+            struct game_controller_input *new_controller = &new_input->controllers[controller_index];
             XINPUT_STATE controller_state;
             if (XInputGetState_ && XInputGetState_(controller_index, &controller_state) == ERROR_SUCCESS) {
                 // This controller is plugged in
@@ -502,60 +477,74 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
                 if (pad->wButtons != 0) {
                     OutputDebugStringA("Got GamePad Activity\n");
                 }
+
+                // TODO dPad
                 bool pad_up = pad->wButtons & XINPUT_GAMEPAD_DPAD_UP;
                 bool pad_down = pad->wButtons & XINPUT_GAMEPAD_DPAD_DOWN;
                 bool pad_left = pad->wButtons & XINPUT_GAMEPAD_DPAD_LEFT;
                 bool pad_right = pad->wButtons & XINPUT_GAMEPAD_DPAD_RIGHT;
-                bool pad_start = pad->wButtons & XINPUT_GAMEPAD_START;
-                bool pad_back = pad->wButtons & XINPUT_GAMEPAD_BACK;
-                bool pad_left_s = pad->wButtons & XINPUT_GAMEPAD_LEFT_SHOULDER;
-                bool pad_right_s = pad->wButtons & XINPUT_GAMEPAD_RIGHT_SHOULDER;
-                bool pad_a = pad->wButtons & XINPUT_GAMEPAD_A;
-                bool pad_b = pad->wButtons & XINPUT_GAMEPAD_B;
-                bool pad_x = pad->wButtons & XINPUT_GAMEPAD_X;
-                bool pad_y = pad->wButtons & XINPUT_GAMEPAD_Y;
-                int16_t stick_x = pad->sThumbLX;
-                int16_t stick_y = pad->sThumbLY;
 
-                x_offset += stick_x / 4096;
-                y_offset += stick_y / 4096;
+                new_controller->is_analog = true;
+                new_controller->start_x = old_controller->end_x;
+                new_controller->start_y = old_controller->end_y;
 
-                if (tone_up_event) {
-                    sound_output.base_tone = sound_output.tone_hz+50;
-                    // sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-                    tone_up_event = false;
-                } else if (tone_down_event) {
-                    sound_output.base_tone = sound_output.tone_hz-50;
-                    // sound_output.wave_period = sound_output.samples_per_second / sound_output.tone_hz;
-                    tone_down_event = false;
+                // TODO Dead zone processing
+                // TODO Min/Max Macros
+                float x;
+                if (pad->sThumbLX < 0) {
+                    x = (float)pad->sThumbLX / 32768.0f;
+                } else {
+                    x = (float)pad->sThumbLX / 32767.0f;
                 }
+                new_controller->min_x = new_controller->max_x = new_controller->end_x = x;
 
-                sound_output.tone_hz = sound_output.base_tone + (int)(256.0f*((float)stick_y / 30000.0f));
-                sound_output.wave_period = sound_output.samples_per_second/sound_output.tone_hz;
+                float y;
+                if (pad->sThumbLY < 0) {
+                    y = (float)pad->sThumbLY / 32768.0f;
+                } else {
+                    y = (float)pad->sThumbLY / 32767.0f;
+                }
+                new_controller->min_y = new_controller->max_y = new_controller->end_y = y;
 
-                // XINPUT_VIBRATION vibration;
-                // vibration.wLeftMotorSpeed = 0;
-                // vibration.wRightMotorSpeed = 0;
-                // if (pad_x && pad_b) {
-                //     vibration.wLeftMotorSpeed = 60000;
-                //     vibration.wRightMotorSpeed = 60000;
-                // } else if (pad_x) {
-                //     vibration.wLeftMotorSpeed = 60000;
-                // } else if (pad_b) {
-                //     vibration.wRightMotorSpeed = 60000;
-                // }
-                // XInputSetState_(controller_index, &vibration);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->down,
+                                                    XINPUT_GAMEPAD_A,
+                                                    &new_controller->down);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->right,
+                                                    XINPUT_GAMEPAD_B,
+                                                    &new_controller->right);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->left,
+                                                    XINPUT_GAMEPAD_X,
+                                                    &new_controller->left);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->up,
+                                                    XINPUT_GAMEPAD_Y,
+                                                    &new_controller->up);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->left_shoulder,
+                                                    XINPUT_GAMEPAD_LEFT_SHOULDER,
+                                                    &new_controller->left_shoulder);
+                win32_process_xinput_digital_button(pad->wButtons,
+                                                    &old_controller->right_shoulder,
+                                                    XINPUT_GAMEPAD_RIGHT_SHOULDER,
+                                                    &new_controller->right_shoulder);
+
+                // bool pad_start = pad->wButtons & XINPUT_GAMEPAD_START;
+                // bool pad_back = pad->wButtons & XINPUT_GAMEPAD_BACK;
+
             } else {
                 // The controller is not available
             }
         }
 
 
-        DWORD play_cursor;
-        DWORD write_cursor;
-        DWORD byte_to_lock;
-        DWORD bytes_to_write;
-        DWORD target_cursor;
+        DWORD play_cursor = 0;
+        DWORD write_cursor = 0;
+        DWORD byte_to_lock = 0;
+        DWORD bytes_to_write = 0;
+        DWORD target_cursor = 0;
 
         bool sound_is_valid = false;
 
@@ -596,7 +585,8 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         buffer.width = global_backbuffer.width;
         buffer.height = global_backbuffer.height;
         buffer.pitch = global_backbuffer.pitch;
-        game_update_and_render(&buffer, x_offset, y_offset, &sound_buffer, sound_output.tone_hz);
+
+        game_update_and_render(new_input, &buffer, &sound_buffer);
 
         if (sound_is_valid) {
             win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);
@@ -623,6 +613,10 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
         last_counter = end_counter;
         last_cycle_count = end_cycle_count;
+
+        struct game_input *temp = new_input;
+        new_input = old_input;
+        old_input = temp;
     }
 
     return 0;
