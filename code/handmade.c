@@ -44,29 +44,37 @@ static void render_weird_gradient(struct game_offscreen_buffer *buffer, int blue
     }
 }
 
-void game_update_and_render(struct game_input *input,
+void game_update_and_render(struct game_memory *memory,
+                            struct game_input *input,
                             struct game_offscreen_buffer *buffer,
                             struct game_sound_output_buffer *sound_buffer) {
-    static int blue_offset = 0;
-    static int green_offset = 0;
-    static int tone_hz = 512;
-    static int base_tone_hz = 512;
-    static int tone_volume = 3000;
-    static int wave_period;
+
+    ASSERT(sizeof(struct game_state) <= memory->permanent_storage_size);
 
     struct game_controller_input *input0 = &input->controllers[0];
+    struct game_state *state = (struct game_state *)memory->permanent_storage;
+
+    if (!memory->is_initialized) {
+        // no need to set this since VirtualAlloc will set memory to zero before giving it to us
+        // state->blue_offset = 0;
+        // state->green_offset = 0;
+        state->tone_hz = BASE_TONE;
+
+        //TODO this may be more appropriate to do in platform layer
+        memory->is_initialized = true;
+    }
 
     if (input0->is_analog) {
         // use analog movement tuning
-        tone_hz = base_tone_hz + (int)(256.0f*input0->end_y);
-        blue_offset += (int)(4.0f*input0->end_x);
+        state->tone_hz = BASE_TONE + (int)(256.0f*input0->end_y);
+        state->blue_offset += (int)(4.0f*input0->end_x);
     } else {
         // use digial movement tuning
     }
     // input.a_btn_ended_down
     // input.a_btn_half_transition_count
     if (input0->down.ended_down) {
-        green_offset += 1;
+        state->green_offset += 1;
     }
     // input.start_x
     // input.min_x
@@ -77,6 +85,6 @@ void game_update_and_render(struct game_input *input,
     // wave_period = sound_output.samples_per_second/sound_output.tone_hz;
 
     // TODO allow sample offset here for more robust platform options
-    output_game_sound(sound_buffer, tone_hz);
-    render_weird_gradient(buffer, blue_offset, green_offset);
+    output_game_sound(sound_buffer, state->tone_hz);
+    render_weird_gradient(buffer, state->blue_offset, state->green_offset);
 }

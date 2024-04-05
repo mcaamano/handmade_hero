@@ -442,7 +442,26 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     is_running = true;
 
     // TODO pool this into bitmap virtualalloc
-    int16_t *samples = (int16_t *) VirtualAlloc(NULL, sound_output.secondary_buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    int16_t *samples = (int16_t *) VirtualAlloc(0, sound_output.secondary_buffer_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!samples) {
+        // TODO log error
+        abort();
+    }
+
+    struct game_memory memory = {0};
+    memory.permanent_storage_size = MEGA_BYTES(64);
+    memory.transient_storage_size = GIGA_BYTES((uint64_t)4);
+    uint64_t total_size = memory.permanent_storage_size + memory.transient_storage_size;
+    memory.permanent_storage = VirtualAlloc(STORAGE_BASE_ADDR, total_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!memory.permanent_storage) {
+        // TODO got error
+        abort();
+    }
+    memory.transient_storage = ((uint8_t *)memory.permanent_storage + memory.permanent_storage_size);
+    if (!memory.transient_storage) {
+        // TODO got error
+        abort();
+    }
 
     struct game_input input[2] = {0};
     struct game_input *new_input = &input[0];
@@ -586,7 +605,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         buffer.height = global_backbuffer.height;
         buffer.pitch = global_backbuffer.pitch;
 
-        game_update_and_render(new_input, &buffer, &sound_buffer);
+        game_update_and_render(&memory, new_input, &buffer, &sound_buffer);
 
         if (sound_is_valid) {
             win32_fill_soundbuffer(&sound_output, byte_to_lock, bytes_to_write, &sound_buffer);

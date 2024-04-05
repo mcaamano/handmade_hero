@@ -9,5 +9,5 @@ cls
 
 mkdir z:\handmade_hero\build
 pushd z:\handmade_hero\build
-cl /Zi z:\handmade_hero\code\win32_handmade.c user32.lib Gdi32.lib Dsound.lib
+cl -DHANDMADE_INTERNAL=1 -DHANDMADE_SLOW=1 -DHANDMADE_WIN32 /Zi z:\handmade_hero\code\win32_handmade.c user32.lib Gdi32.lib Dsound.lib
 popd

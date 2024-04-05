@@ -29,6 +29,7 @@
         "dsound.h": "c",
         "stdint.h": "c",
         "stdbool.h": "c",
-        "stdio.h": "c"
+        "stdio.h": "c",
+        "assert.h": "c"
     },
 }
