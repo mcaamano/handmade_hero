@@ -55,6 +55,16 @@ void game_update_and_render(struct game_memory *memory,
     struct game_state *state = (struct game_state *)memory->permanent_storage;
 
     if (!memory->is_initialized) {
+        char *filename = __FILE__;
+
+        struct debug_read_file_results file = debug_platform_read_entire_file(filename);
+        if (!file.data) {
+            // handle error
+        }
+        debug_platform_write_entire_file("test.out", file.data_size, file.data);
+        debug_platform_free_file_memory(file.data);
+
+
         // no need to set this since VirtualAlloc will set memory to zero before giving it to us
         // state->blue_offset = 0;
         // state->green_offset = 0;

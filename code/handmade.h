@@ -3,10 +3,10 @@
 
 #include <stdbool.h>
 
-#define KILO_BYTES(x)       (x*1024)
-#define MEGA_BYTES(x)       (x*1024*1024)
-#define GIGA_BYTES(x)       (x*1024*1024*1024)
-#define TERA_BYTES(x)       (x*1024*1024*1024*1024)
+#define KILO_BYTES(x)       (x*1024ULL)
+#define MEGA_BYTES(x)       (KILO_BYTES(x)*1024ULL)
+#define GIGA_BYTES(x)       (MEGA_BYTES(x)*1024ULL)
+#define TERA_BYTES(x)       (GIGA_BYTES(x)*1024ULL)
 
 /*
  * Global Defines
@@ -28,7 +28,7 @@
 #endif
 
 #ifdef HANDMADE_INTERNAL
-#define STORAGE_BASE_ADDR TERA_BYTES((uint64_t)2)
+#define STORAGE_BASE_ADDR TERA_BYTES(2)
 #else
 #define STORAGE_BASE_ADDR 0
 #endif
@@ -36,9 +36,26 @@
 #define MAX_CONTROLLERS     4
 #define BASE_TONE           512
 
-
-
 #define ARRAY_COUNT(array)  (sizeof(array)/sizeof((array)[0]))
+
+inline uint32_t safe_truncate_uint64(uint64_t value) {
+    uint32_t result;
+    assert(value <= UINT32_MAX);
+    result = (uint32_t)value;
+    return result;
+}
+
+#ifdef HANDMADE_INTERNAL
+// These are NOT for doing anything in the shipping game, they are blocking
+// and the write doesn't protect against lost data!
+struct debug_read_file_results {
+    uint32_t data_size;
+    void *data;
+};
+struct debug_read_file_results debug_platform_read_entire_file(char *filename);
+void debug_platform_free_file_memory(void *data);
+bool debug_platform_write_entire_file(char *filename, uint32_t data_size, void *data);
+#endif
 
 struct game_memory {
     bool is_initialized;

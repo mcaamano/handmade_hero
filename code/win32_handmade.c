@@ -32,6 +32,80 @@ static x_input_set_state *XInputSetState_;
 #define XInputGetState XInputGetState_
 #define XInputSetState XInputSetState_
 
+#ifdef HANDMADE_INTERNAL
+static struct debug_read_file_results debug_platform_read_entire_file(char *filename) {
+    struct debug_read_file_results file = {0};
+    bool result;
+    LARGE_INTEGER file_size;
+
+    HANDLE handle =  CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, 0);
+    if (handle == INVALID_HANDLE_VALUE) {
+        // TODO handle failure
+        abort();
+    }
+
+    result = GetFileSizeEx(handle, &file_size);
+    if (!result) {
+        // TODO handle failure
+        abort();
+    }
+
+    file.data_size = safe_truncate_uint64(file_size.QuadPart);
+
+    file.data = VirtualAlloc(NULL, file.data_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    if (!file.data) {
+        // TODO handle failure
+        abort();
+    }
+
+    DWORD bytes_read = 0;
+    result = ReadFile(handle, file.data, file.data_size, &bytes_read, 0);
+    if (!result || file.data_size!=bytes_read) {
+        // TODO handle failure
+        debug_platform_free_file_memory(file.data);
+        file.data_size = 0;
+        file.data = NULL;
+    }
+
+    result = CloseHandle(handle);
+    if (!result) {
+        // TODO handle failure
+        abort();
+    }
+
+    return file;
+}
+
+static void debug_platform_free_file_memory(void *memory) {
+    VirtualFree(memory, 0, MEM_RELEASE);
+}
+
+static bool debug_platform_write_entire_file(char *filename, uint32_t memory_size, void *memory) {
+    bool result;
+    bool write_result = false;
+    
+    HANDLE handle =  CreateFileA(filename, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, 0, 0);
+    if (handle == INVALID_HANDLE_VALUE) {
+        // TODO handle failure
+        abort();
+    }
+
+    DWORD bytes_written = 0;
+    result = WriteFile(handle, memory, memory_size, &bytes_written, 0);
+    if (result && memory_size==bytes_written) {
+        write_result = true;
+    }
+
+    result = CloseHandle(handle);
+    if (!result) {
+        // TODO handle failure
+        abort();
+    }
+
+    return write_result;
+}
+#endif //HANDMADE_INTERNAL
+
 static void win32_load_xinput(void) {
     HMODULE x_input_library = LoadLibraryA("xinput1_4.dll");
     if(!x_input_library) {
@@ -450,9 +524,9 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     struct game_memory memory = {0};
     memory.permanent_storage_size = MEGA_BYTES(64);
-    memory.transient_storage_size = GIGA_BYTES((uint64_t)4);
+    memory.transient_storage_size = GIGA_BYTES(4);
     uint64_t total_size = memory.permanent_storage_size + memory.transient_storage_size;
-    memory.permanent_storage = VirtualAlloc(STORAGE_BASE_ADDR, total_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    memory.permanent_storage = VirtualAlloc((void *)STORAGE_BASE_ADDR, (size_t) total_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!memory.permanent_storage) {
         // TODO got error
         abort();
