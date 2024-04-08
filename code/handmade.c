@@ -34,8 +34,8 @@ static void render_weird_gradient(struct game_offscreen_buffer *buffer, int blue
                 Little Endian Architecture ends up with 0xXXBBGGRR
                 MS swapped so that on memory it looks like 0xXXRRGGBB
             */
-            uint8_t blue = x + blue_offset;
-            uint8_t green = y + green_offset;
+            uint8_t blue = (uint8_t)(x + blue_offset);
+            uint8_t green = (uint8_t)(y + green_offset);
             uint8_t red = 0;
            
             *pixel++ = ((red<<16) | (green<<8) | blue);
@@ -78,13 +78,23 @@ void game_update_and_render(struct game_memory *memory,
         // use analog movement tuning
         state->tone_hz = BASE_TONE + (int)(256.0f*input0->end_y);
         state->blue_offset += (int)(4.0f*input0->end_x);
+        state->green_offset += (int)(4.0f*input0->end_y);
     } else {
         // use digial movement tuning
     }
     // input.a_btn_ended_down
     // input.a_btn_half_transition_count
     if (input0->down.ended_down) {
+        state->green_offset -= 1;
+    }
+    if (input0->up.ended_down) {
         state->green_offset += 1;
+    }
+    if (input0->left.ended_down) {
+        state->blue_offset += 1;
+    }
+    if (input0->right.ended_down) {
+        state->blue_offset -= 1;
     }
     // input.start_x
     // input.min_x

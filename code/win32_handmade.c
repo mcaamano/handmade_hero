@@ -33,7 +33,7 @@ static x_input_set_state *XInputSetState_;
 #define XInputSetState XInputSetState_
 
 #ifdef HANDMADE_INTERNAL
-static struct debug_read_file_results debug_platform_read_entire_file(char *filename) {
+struct debug_read_file_results debug_platform_read_entire_file(char *filename) {
     struct debug_read_file_results file = {0};
     bool result;
     LARGE_INTEGER file_size;
@@ -76,11 +76,11 @@ static struct debug_read_file_results debug_platform_read_entire_file(char *file
     return file;
 }
 
-static void debug_platform_free_file_memory(void *memory) {
+void debug_platform_free_file_memory(void *memory) {
     VirtualFree(memory, 0, MEM_RELEASE);
 }
 
-static bool debug_platform_write_entire_file(char *filename, uint32_t memory_size, void *memory) {
+bool debug_platform_write_entire_file(char *filename, uint32_t memory_size, void *memory) {
     bool result;
     bool write_result = false;
     
@@ -124,15 +124,96 @@ static void win32_load_xinput(void) {
     }
 }
 
+static void win32_process_keyboard_message(struct game_button_state *new_state, bool is_down) {
+    new_state->ended_down = is_down;
+    new_state->half_transition_count++;
+}
+
+static void win32_process_pending_messages(struct game_controller_input *keyboard_controller) {
+    MSG message;
+    while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
+        switch (message.message) {
+            case WM_QUIT:
+                is_running = false;
+                break;
+            case WM_SYSKEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_KEYDOWN:
+            case WM_KEYUP:
+                uint32_t vkey_code = (uint32_t)message.wParam;
+                bool was_down = ((message.lParam & (1<<30)) != 0);
+                bool is_down = ((message.lParam & (1<<31)) == 0);
+                if (was_down != is_down) {
+                    switch(vkey_code) {
+                        case 'W':
+                            win32_process_keyboard_message(&keyboard_controller->up, is_down);
+                            OutputDebugStringA("W KEY\n");
+                            break;
+                        case 'A':
+                            win32_process_keyboard_message(&keyboard_controller->left, is_down);
+                            OutputDebugStringA("A KEY\n");
+                            break;
+                        case 'S':
+                            win32_process_keyboard_message(&keyboard_controller->down, is_down);
+                            OutputDebugStringA("S KEY\n");
+                            break;
+                        case 'D':
+                            win32_process_keyboard_message(&keyboard_controller->right, is_down);
+                            OutputDebugStringA("D KEY\n");
+                            break;
+                        case 'Q':
+                            win32_process_keyboard_message(&keyboard_controller->left_shoulder, is_down);
+                            OutputDebugStringA("Q KEY\n");
+                            break;
+                        case 'E':
+                            win32_process_keyboard_message(&keyboard_controller->right_shoulder, is_down);
+                            OutputDebugStringA("E KEY\n");
+                            break;
+                        case VK_SPACE:
+                            OutputDebugStringA("SPACEBAR\n");
+                            break;
+                        case VK_ESCAPE:
+                            is_running = false;
+                            break;
+                        case VK_LEFT:
+                            win32_process_keyboard_message(&keyboard_controller->left, is_down);
+                            OutputDebugStringA("LEFT\n");
+                            break;
+                        case VK_RIGHT:
+                            win32_process_keyboard_message(&keyboard_controller->right, is_down);
+                            OutputDebugStringA("RIGHT\n");
+                            break;
+                        case VK_UP:
+                            win32_process_keyboard_message(&keyboard_controller->up, is_down);
+                            OutputDebugStringA("UP\n");
+                            break;
+                        case VK_DOWN:
+                            win32_process_keyboard_message(&keyboard_controller->down, is_down);
+                            OutputDebugStringA("DOWN\n");
+                            break;
+                    }
+                }
+                bool alt_key_was_down = ((message.lParam & (1<<29)) != 0);
+                if ((vkey_code == VK_F4) && alt_key_was_down) {
+                    is_running = false;
+                }
+
+                break;
+            default:
+                TranslateMessage(&message);
+                DispatchMessageA(&message);
+                break;
+        }
+    }
+}
+
 static void win32_process_xinput_digital_button(DWORD xinput_button_state,
                                                 struct game_button_state *old_state,
                                                 DWORD button_bit,
                                                 struct game_button_state *new_state) {
 
     new_state->ended_down = (xinput_button_state & button_bit) == button_bit;
-    new_state->half_transition_count = 
-        (old_state->ended_down != new_state->ended_down) ? 1 : 0;
-
+    new_state->half_transition_count = (old_state->ended_down != new_state->ended_down) ? 1 : 0;
 }
 
 // typedef HRESULT WINAPI x_direct_sound_create(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
@@ -374,61 +455,7 @@ LRESULT win32_main_window_callback(HWND window,
         case WM_SYSKEYUP:
         case WM_KEYDOWN:
         case WM_KEYUP:
-            uint32_t vkey_code = w_param;
-            bool was_down = ((l_param & (1<<30)) != 0);
-            bool is_down = ((l_param & (1<<31)) == 0);
-            if (was_down != is_down) {
-                switch(vkey_code) {
-                    case 'W':
-                        OutputDebugStringA("W KEY");
-                        break;
-                    case 'A':
-                        OutputDebugStringA("A KEY");
-                        break;
-                    case 'S':
-                        OutputDebugStringA("S KEY");
-                        break;
-                    case 'D':
-                        OutputDebugStringA("D KEY");
-                        break;
-                    case 'Q':
-                        OutputDebugStringA("Q KEY");
-                        break;
-                    case 'E':
-                        OutputDebugStringA("E KEY");
-                        break;
-                    case VK_SPACE:
-                        OutputDebugStringA("SPACEBAR");
-                        break;
-                    case VK_LEFT:
-                        OutputDebugStringA("LEFT");
-                        break;
-                    case VK_RIGHT:
-                        OutputDebugStringA("RIGHT");
-                        break;
-                    case VK_UP:
-                        OutputDebugStringA("UP");
-                        break;
-                    case VK_DOWN:
-                        OutputDebugStringA("DOWN");
-                        break;
-                }
-                if (is_down) {
-                    OutputDebugStringA(" is_down ");
-                } else {
-                    OutputDebugStringA(" is_up ");
-                }
-                if (was_down) {
-                    OutputDebugStringA(" was_down");
-                } else {
-                    OutputDebugStringA(" was_up");
-                }
-                OutputDebugStringA("\n");
-            }
-            bool alt_key_was_down = ((l_param & (1<<29)) != 0);
-            if ((vkey_code == VK_F4) && alt_key_was_down) {
-                is_running = false;
-            }
+            ASSERT(!"Keyboard input came in through a non-dispatch message");
             break;
 
         case WM_PAINT: {
@@ -458,7 +485,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     win32_resize_dib_section(&global_backbuffer, 1280, 720);
 
     window_class.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
-    window_class.lpfnWndProc = win32_main_window_callback;
+    window_class.lpfnWndProc = (WNDPROC) win32_main_window_callback;
     window_class.hInstance = instance;
     window_class.lpszClassName = "Handmade_Hero_Window_Class";
 
@@ -524,7 +551,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
 
     struct game_memory memory = {0};
     memory.permanent_storage_size = MEGA_BYTES(64);
-    memory.transient_storage_size = GIGA_BYTES(4);
+    memory.transient_storage_size = GIGA_BYTES(1);
     uint64_t total_size = memory.permanent_storage_size + memory.transient_storage_size;
     memory.permanent_storage = VirtualAlloc((void *)STORAGE_BASE_ADDR, (size_t) total_size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     if (!memory.permanent_storage) {
@@ -545,14 +572,13 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
     QueryPerformanceCounter(&last_counter);
     uint64_t last_cycle_count = __rdtsc();
     while (is_running) {
-        MSG message;
-        while(PeekMessage(&message, 0, 0, 0, PM_REMOVE)) {
-            if (message.message == WM_QUIT) {
-                is_running = false;
-            }
-            TranslateMessage(&message);
-            DispatchMessageA(&message);
-        }
+        struct game_controller_input *keyboard_controller = &new_input->controllers[0];
+        // TODO zeroing macro
+        // We can't zero everything because the up/down state will be wrong
+        struct game_controller_input zero_controller = {0};
+        *keyboard_controller = zero_controller;
+
+        win32_process_pending_messages(keyboard_controller);
 
         // Should we poll this more frequently
         int max_controller_count = XUSER_MAX_COUNT;
@@ -701,7 +727,7 @@ int APIENTRY WinMain(HINSTANCE instance, HINSTANCE prev_instance, PSTR command_l
         float frames_per_second = (float)((float)perfcounter_frequency/(float)counter_elapsed);
 
         char stats_buffer[256];
-        sprintf(stats_buffer, "ms/frame: %.02f | FPS: %.02f | MegaCycles/Frame: %.02f\n", milliseconds_per_frame, frames_per_second, mega_cycles_per_frame);
+        snprintf(stats_buffer, 256, "ms/frame: %.02f | FPS: %.02f | MegaCycles/Frame: %.02f\n", milliseconds_per_frame, frames_per_second, mega_cycles_per_frame);
         OutputDebugStringA(stats_buffer);
 
         last_counter = end_counter;

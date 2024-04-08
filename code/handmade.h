@@ -3,10 +3,10 @@
 
 #include <stdbool.h>
 
-#define KILO_BYTES(x)       (x*1024ULL)
-#define MEGA_BYTES(x)       (KILO_BYTES(x)*1024ULL)
-#define GIGA_BYTES(x)       (MEGA_BYTES(x)*1024ULL)
-#define TERA_BYTES(x)       (GIGA_BYTES(x)*1024ULL)
+#define KILO_BYTES(x)       (x*1024LL)
+#define MEGA_BYTES(x)       (KILO_BYTES(x)*1024LL)
+#define GIGA_BYTES(x)       (MEGA_BYTES(x)*1024LL)
+#define TERA_BYTES(x)       (GIGA_BYTES(x)*1024LL)
 
 /*
  * Global Defines
@@ -21,8 +21,10 @@
  */
 
 #ifdef HANDMADE_SLOW
-#include <assert.h>
-#define ASSERT(Expression)  assert(Expression)
+// TODO Complete assertion macro
+// dereferencing zero to avoid using external library / don't use libc assert
+#define ASSERT(Expression)  if(!(Expression)) {*(int *)0 = 0;}
+#define Assert(Expression) 
 #else
 #define ASSERT(Expression)
 #endif
@@ -34,13 +36,14 @@
 #endif
 
 #define MAX_CONTROLLERS     4
+#define NUM_BUTTONS         6
 #define BASE_TONE           512
 
 #define ARRAY_COUNT(array)  (sizeof(array)/sizeof((array)[0]))
 
 inline uint32_t safe_truncate_uint64(uint64_t value) {
+    ASSERT(value <= UINT32_MAX);
     uint32_t result;
-    assert(value <= UINT32_MAX);
     result = (uint32_t)value;
     return result;
 }
@@ -104,7 +107,7 @@ struct game_controller_input {
     float end_y;
 
     union {
-        struct game_button_state buttons[0];
+        struct game_button_state buttons[NUM_BUTTONS];
         struct {
             struct game_button_state up;
             struct game_button_state down;
